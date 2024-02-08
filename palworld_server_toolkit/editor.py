@@ -2531,13 +2531,52 @@ def FindReferenceItemContainerIds():
         for concrete in mapObject['ConcreteModel']['value']['ModuleMap']['value']:
             if concrete['key'] == "EPalMapObjectConcreteModelModuleType::ItemContainer":
                 reference_ids.append(concrete['value']['RawData']['value']['target_container_id'])
+    print(f"Referenced Item Containers: {len(reference_ids)}")
 
     for character in wsd['CharacterSaveParameterMap']['value']:
         characterData = character['value']['RawData']['value']['object']['SaveParameter']['value']
         if 'EquipItemContainerId' in characterData:
             reference_ids.append(characterData['EquipItemContainerId']['value']['ID']['value'])
+    print(f"Referenced Item Containers(including characters): {len(reference_ids)}")
+
+    for baseCamp in wsd['BaseCampSaveData']['value']:
+        reference_ids.append(baseCamp['value']['WorkerDirector']['value']['RawData']['value']['container_id'])
+    print(f"Referenced Item Containers(including basecamps): {len(reference_ids)}")
 
     return reference_ids
+
+
+def GetReferencedContainerIdsByPlayer(player_uid):
+    err, player_gvas, player_sav_file, player_gvas_file = GetPlayerGvas(player_uid)
+    if err:
+        print("\033[33mWarning: Player Sav file Not exists: %s\033[0m" % player_sav_file)
+        return
+    player_container_ids = []
+    for key in ['OtomoCharacterContainerId', 'PalStorageContainerId']:
+        player_container_ids.append(player_gvas[key]['value']['ID']['value'])
+
+    for key in ['CommonContainerId', 'DropSlotContainerId', 'EssentialContainerId', 'FoodEquipContainerId',
+                'PlayerEquipArmorContainerId', 'WeaponLoadOutContainerId']:
+        player_container_ids.append(player_gvas['inventoryInfo']['value'][key]['value']['ID']['value'])
+    return player_container_ids
+
+
+def GetUnreferencedContainerIds():
+    LoadItemContainerMaps()
+    referencedContainerIds = set(FindReferenceItemContainerIds())
+    allContainerIds = set(MappingCache.ItemContainerSaveData.keys())
+    for playerId in playerMapping:
+        referencedByPlayer = GetReferencedContainerIdsByPlayer(playerId)
+        print(f"Player {playerId} referenced {len(referencedByPlayer)}")
+        referencedContainerIds.update(referencedByPlayer)
+
+    return list(allContainerIds - referencedContainerIds)
+
+
+def BatchDeleteUnreferencedItemContainers():
+    unreferencedContainerIds = GetUnreferencedContainerIds()
+    print(f"Delete Non-Referenced Item Containers: {len(unreferencedContainerIds)}")
+    BatchDeleteItemContainer(unreferencedContainerIds)
 
 
 def BatchDeleteItemContainer(itemContainerIds):
@@ -2552,6 +2591,9 @@ def BatchDeleteItemContainer(itemContainerIds):
             continue
 
         deleteItemContainerIds.append(itemContainerId)
+        if len(deleteItemContainerIds) % 10000 == 0:
+            print(f"Deleting Item Containers: {len(deleteItemContainerIds)} / {len(itemContainerIds)}")
+            
         container = parse_item(MappingCache.ItemContainerSaveData[itemContainerId], "ItemContainerSaveData")
         containerSlots = container['value']['Slots']['value']['values']
         for slotItem in containerSlots:
